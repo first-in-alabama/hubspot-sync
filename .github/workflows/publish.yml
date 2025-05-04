@@ -15,7 +15,7 @@ env:
 jobs:
   publish:
     name: Publish
-    runs-on: self-hosted
+    runs-on: linux
     permissions:
       contents: write
       packages: write
