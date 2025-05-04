@@ -15,7 +15,7 @@ env:
 jobs:
   publish:
     name: Publish
-    runs-on: linux
+    runs-on: ubuntu:latest
     permissions:
       contents: write
       packages: write
