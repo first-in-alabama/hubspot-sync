@@ -1,11 +1,9 @@
 import requests
 from hubspot import HubSpot
-from hubspot.crm.objects import SimplePublicObjectInputForCreate
-from hubspot.crm.objects.exceptions import ApiException
+from hubspot.crm.objects import BatchInputSimplePublicObjectBatchInput, ApiException
 
 SEASONS_API = 'https://my.firstinspires.org/usfirstapi/seasons/search'
 EVENTS_API = 'https://my.firstinspires.org/usfirstapi/events/search?CountryCode=US&StateProv=AL&Season={season_year}&ProgramCode={program_code}'
-
 FIRST_TO_HUBSPOT_MAP = {
   'JFLL': 'FIRST LEGO League Explore',
   'FLL': 'FIRST LEGO League Challenge',
@@ -13,32 +11,29 @@ FIRST_TO_HUBSPOT_MAP = {
   'FRC': 'FIRST Robotics Competition'
 }
 
-def fetch_seasons() -> dict: 
+'''
+Get the current seasons for all FIRST programs
+'''
+def fetch_first_seasons() -> dict: 
   seasons = None
-  try:
-    seasons = { s['ProgramCode']: s['SeasonYearStart'] for s in requests.get(SEASONS_API).json() if s['IsCurrentSeason']}
-  except:
-    seasons = None
-
-  if seasons is None:
-    return
-  
+  try: seasons = { s['ProgramCode']: s['SeasonYearStart'] for s in requests.get(SEASONS_API).json() if s['IsCurrentSeason']}
+  except: seasons = None
   return seasons
 
 
-def fetch_events(program_code: str, season_year: int) -> list:
+'''
+Get the FIRST events for a given program and season
+'''
+def fetch_first_events(program_code: str, season_year: int) -> list:
   events = None
-  try:
-    events = requests.get(EVENTS_API.format(program_code=program_code, season_year=season_year)).json()
-  except:
-    events = None
-
-  if events is None:
-    return
-  
+  try: events = requests.get(EVENTS_API.format(program_code=program_code, season_year=season_year)).json()
+  except: events = None  
   return events
 
 
+'''
+Get all events HubSpot currently knows
+'''
 def get_known_events(api_client: HubSpot) -> list:
   events = []
   page = None
@@ -73,44 +68,116 @@ def get_known_events(api_client: HubSpot) -> list:
 
   return events
 
+'''
+Map the data from a FIRST event to the property fields of a HubSpot event.
+'''
+def map_first_event_properties_to_hubspot(first_event) -> object:
+  return {
+    'event_name': first_event['Name'],
+    'event_venue': first_event['Venue'],
+    'event_address_1': first_event['Address1'],
+    'event_city': first_event['City'],
+    'event_postal_code': first_event['PostalCode'],
+    'hs_appointment_start': first_event['StartDate']['Numeric'],
+    'hs_appointment_end': first_event['EndDate']['Numeric'],
+    'event_volunteer_url': '',
+    'program': FIRST_TO_HUBSPOT_MAP[first_event['Type']],
+    'event_code': first_event['Code'],
+    'event_season_year': first_event['Season']
+  }
 
-def process_events(api_client: HubSpot, first_events: list, known_events: list):
-  if len(known_events) > 0:
-    # TODO: Handle updates?
-    pass
+'''
+Create events that are new and update events that already exist.
+Events are unique by a combination of event code, program code, and season year.
+'''
+def process_events(api_client: HubSpot, first_events: list, hubspot_events: list, program_code: str, season_year: int):
+  hubspot_program = FIRST_TO_HUBSPOT_MAP[program_code]
+  
+  # Find the existing HubSpot events that match this batch
+  program_hubspot_events = [
+    event 
+    for event 
+    in hubspot_events 
+    if event.properties['program'] == hubspot_program 
+    and event.properties['event_season_year'] == str(season_year)
+  ]
 
-  for event in first_events:
-    hubspot_event = SimplePublicObjectInputForCreate(properties={
-      'event_name': event['Name'],
-      'event_venue': event['Venue'],
-      'event_address_1': event['Address1'],
-      'event_city': event['City'],
-      'event_postal_code': event['PostalCode'],
-      'hs_appointment_start': event['StartDate']['Numeric'],
-      'hs_appointment_end': event['EndDate']['Numeric'],
-      'event_volunteer_url': '',
-      'program': FIRST_TO_HUBSPOT_MAP[event['Type']],
-      'event_code': event['Code'],
-      'event_season_year': event['Season']
-    })
+  events_to_update = []
 
+  # Get events to update
+  for existing_event in program_hubspot_events:
+    match = [
+      event 
+      for event in first_events 
+      if event['Code'] == existing_event.properties['event_code']
+      and event['Type'] == program_code
+      and event['Season'] == season_year
+    ]
+
+    if len(match) == 0: continue
+    if len(match) > 1:
+      print('Too many matches found for', program_code, first_event['Code'], season_year, 'in existing events')
+      continue
+
+    first_event = match[0]
+    hubspot_event = {
+      'id': existing_event.id,
+      'properties':  map_first_event_properties_to_hubspot(first_event)
+    }
+    
+    events_to_update.append(hubspot_event)
+    first_events.remove(first_event)
+
+  events_to_create = []
+
+  # Create new events
+  for first_event in first_events:
+    hubspot_event = {
+      'properties': map_first_event_properties_to_hubspot(first_event)
+    }
+    events_to_create.append(hubspot_event)
+
+  if len(events_to_create) > 0:
+    create_batch = BatchInputSimplePublicObjectBatchInput(inputs=events_to_create)
     try:
-      api_client.crm.objects.basic_api.create(
-        object_type='0-421',
-        simple_public_object_input_for_create=hubspot_event
-      )
+      api_client.crm.objects.batch_api.create(
+      object_type="0-421", 
+      batch_input_simple_public_object_input_for_create=create_batch
+    )
     except ApiException as e:
-      print("Exception when creating event: %s\n" % e)
+      print("Exception when calling batch_api->create: %s\n" % e)
 
+  if len(events_to_update) > 0:
+    update_batch = BatchInputSimplePublicObjectBatchInput(inputs=events_to_update)
+    try:
+      api_client.crm.objects.batch_api.update(
+      object_type='0-421', 
+      batch_input_simple_public_object_batch_input=update_batch
+    )
+    except ApiException as e:
+      print("Exception when calling batch_api->update: %s\n" % e)
+
+
+def get_hubspot_api_token() -> str:
+  api_token = None
+  try:
+    with open('/run/secrets/HUBSPOT_API_TOKEN') as f: api_token = f.read()
+  except:
+    api_token = None
+  return api_token
 
 def main():
-  api_token = None
-  with open('/run/secrets/HUBSPOT_API_TOKEN') as f: api_token = f.read()
+  print('Sync Begin')
+
+  api_token = get_hubspot_api_token()
+  if api_token is None:
+    print('Could not retrieve HubSpot API token')
+    return
 
   api_client = HubSpot(access_token=api_token)
-  known_events = get_known_events(api_client)
+  hubspot_events = get_known_events(api_client)
 
-  seasons = fetch_seasons()
+  seasons = fetch_first_seasons()
   if seasons is None:
     print('Could not fetch current seasons')
     return
@@ -118,15 +185,17 @@ def main():
   for program_code, season_year in seasons.items():
     if program_code not in FIRST_TO_HUBSPOT_MAP.keys(): continue
 
-    events = fetch_events(program_code, season_year)
-    if events is None:
+    first_events = fetch_first_events(program_code, season_year)
+    if first_events is None:
       print('Unable to find events for', program_code)
       continue
     
     process_events(
       api_client,
-      events, 
-      [event for event in known_events if event.properties['program'] == FIRST_TO_HUBSPOT_MAP[program_code]]
+      first_events, 
+      hubspot_events,
+      program_code,
+      season_year
     )
   print('Sync Complete')
 
