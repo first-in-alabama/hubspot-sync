@@ -1,0 +1,9 @@
+services:
+  hubspot_sync:
+    secrets:
+      - HUBSPOT_API_TOKEN
+    build:
+      context: .
+secrets:
+  HUBSPOT_API_TOKEN:
+    file: secrets/hubspot_api_token.txt
