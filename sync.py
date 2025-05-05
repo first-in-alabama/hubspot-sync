@@ -1,15 +1,10 @@
 import requests
-from hubspot import HubSpot
-from hubspot.crm.objects import BatchInputSimplePublicObjectBatchInput, ApiException
-
+from hubspot import Client
+from hubspot.marketing.events import BatchInputMarketingEventCreateRequestParams, ApiException
+from pprint import pprint
 SEASONS_API = 'https://my.firstinspires.org/usfirstapi/seasons/search'
 EVENTS_API = 'https://my.firstinspires.org/usfirstapi/events/search?CountryCode=US&StateProv=AL&Season={season_year}&ProgramCode={program_code}'
-FIRST_TO_HUBSPOT_MAP = {
-  'JFLL': 'FIRST LEGO League Explore',
-  'FLL': 'FIRST LEGO League Challenge',
-  'FTC': 'FIRST Tech Challenge',
-  'FRC': 'FIRST Robotics Competition'
-}
+FIRST_PROGRAMS = set([ 'JFLL', 'FLL', 'FTC', 'FRC' ])
 
 '''
 Get the current seasons for all FIRST programs
@@ -34,29 +29,15 @@ def fetch_first_events(program_code: str, season_year: int) -> list:
 '''
 Get all events HubSpot currently knows
 '''
-def get_known_events(api_client: HubSpot) -> list:
+def get_known_events(api_client: Client) -> list:
   events = []
   page = None
 
   while True:
-    api_response = api_client.crm.objects.basic_api.get_page(
-      object_type='0-421',
+    api_response = api_client.marketing.events.basic_api.get_all(
       limit=100, 
-      archived=False, 
-      after=page,
-      properties=[
-      'event_name',
-      'event_venue',
-      'event_address_1',
-      'event_city',
-      'event_postal_code',
-      'hs_appointment_start',
-      'hs_appointment_end',
-      'event_volunteer_url',
-      'program',
-      'event_code',
-      'event_season_year'
-    ])
+      after=page
+    )
 
     events.extend(api_response.results)
 
@@ -72,34 +53,69 @@ def get_known_events(api_client: HubSpot) -> list:
 Map the data from a FIRST event to the property fields of a HubSpot event.
 '''
 def map_first_event_properties_to_hubspot(first_event) -> object:
+  event_code = first_event['Code']
+  event_season_year = first_event['Season']
+  event_program = first_event['Type']
+
   return {
-    'event_name': first_event['Name'],
-    'event_venue': first_event['Venue'],
-    'event_address_1': first_event['Address1'],
-    'event_city': first_event['City'],
-    'event_postal_code': first_event['PostalCode'],
-    'hs_appointment_start': first_event['StartDate']['Numeric'],
-    'hs_appointment_end': first_event['EndDate']['Numeric'],
-    'event_volunteer_url': '',
-    'program': FIRST_TO_HUBSPOT_MAP[first_event['Type']],
-    'event_code': first_event['Code'],
-    'event_season_year': first_event['Season']
+    'eventOrganizer': 'FIRST in Alabama',
+    'externalAccountId': event_program + str(event_season_year) + str(event_code),
+    'externalEventId': event_program + str(event_season_year) + str(event_code),
+    'eventName': first_event['Name'],
+    'eventType': event_program,
+    'startDateTime': first_event['StartDate']['Numeric'],
+    'endDateTime': first_event['EndDate']['Numeric'],
+    "customProperties": [
+      {
+        'name': 'event_code',
+        'value': event_code
+      },
+      {
+        'name': 'event_venue',
+        'value': first_event['Venue']
+      },
+      {
+        "name": "event_season_year",
+        "value": event_season_year
+      },
+      {
+          "name": "event_volunteer_url",
+          "value": ''
+      },
+      {
+          "name": "event_city",
+          "value": first_event['City']
+      },
+      {
+          "name": "event_postal_code",
+          "value": first_event['PostalCode']
+      },
+      {
+          "name": "event_address",
+          "value": first_event['Address1']
+      }
+    ]
   }
+
+def get_custom_property(custom_properties: list, key: str) -> str:
+  if custom_properties is None: return None
+  match = [entry.value for entry in custom_properties if entry.name == key]
+  if len(match) != 1: return None
+  return match[0]
+
 
 '''
 Create events that are new and update events that already exist.
 Events are unique by a combination of event code, program code, and season year.
 '''
-def process_events(api_client: HubSpot, first_events: list, hubspot_events: list, program_code: str, season_year: int):
-  hubspot_program = FIRST_TO_HUBSPOT_MAP[program_code]
-  
+def process_events(api_client: Client, first_events: list, hubspot_events: list, program_code: str, season_year: int):  
   # Find the existing HubSpot events that match this batch
   program_hubspot_events = [
     event 
     for event 
     in hubspot_events 
-    if event.properties['program'] == hubspot_program 
-    and event.properties['event_season_year'] == str(season_year)
+    if event.event_type == program_code 
+    and get_custom_property(event.custom_properties, 'event_season_year') == str(season_year)
   ]
 
   events_to_update = []
@@ -109,7 +125,7 @@ def process_events(api_client: HubSpot, first_events: list, hubspot_events: list
     match = [
       event 
       for event in first_events 
-      if event['Code'] == existing_event.properties['event_code']
+      if event['Code'] == get_custom_property(existing_event.custom_properties, 'event_code')
       and event['Type'] == program_code
       and event['Season'] == season_year
     ]
@@ -120,10 +136,10 @@ def process_events(api_client: HubSpot, first_events: list, hubspot_events: list
       continue
 
     first_event = match[0]
-    hubspot_event = {
-      'id': existing_event.id,
-      'properties':  map_first_event_properties_to_hubspot(first_event)
-    }
+    hubspot_event = map_first_event_properties_to_hubspot(first_event)
+    hubspot_event['externalEventId'] = existing_event.external_event_id
+    hubspot_event['objectId'] = existing_event.object_id
+    hubspot_event['eventOrganizer'] = existing_event.event_organizer
     
     events_to_update.append(hubspot_event)
     first_events.remove(first_event)
@@ -132,28 +148,14 @@ def process_events(api_client: HubSpot, first_events: list, hubspot_events: list
 
   # Create new events
   for first_event in first_events:
-    hubspot_event = {
-      'properties': map_first_event_properties_to_hubspot(first_event)
-    }
+    hubspot_event =  map_first_event_properties_to_hubspot(first_event)
     events_to_create.append(hubspot_event)
 
-  if len(events_to_create) > 0:
-    create_batch = BatchInputSimplePublicObjectBatchInput(inputs=events_to_create)
+  all_events = events_to_update + events_to_create
+  if len(all_events) > 0:
+    upsert_batch = BatchInputMarketingEventCreateRequestParams(inputs=all_events)
     try:
-      api_client.crm.objects.batch_api.create(
-      object_type="0-421", 
-      batch_input_simple_public_object_input_for_create=create_batch
-    )
-    except ApiException as e:
-      print("Exception when calling batch_api->create: %s\n" % e)
-
-  if len(events_to_update) > 0:
-    update_batch = BatchInputSimplePublicObjectBatchInput(inputs=events_to_update)
-    try:
-      api_client.crm.objects.batch_api.update(
-      object_type='0-421', 
-      batch_input_simple_public_object_batch_input=update_batch
-    )
+      api_client.marketing.events.batch_api.upsert(upsert_batch)
     except ApiException as e:
       print("Exception when calling batch_api->update: %s\n" % e)
 
@@ -174,7 +176,7 @@ def main():
     print('Could not retrieve HubSpot API token')
     return
 
-  api_client = HubSpot(access_token=api_token)
+  api_client = Client.create(access_token=api_token)
   hubspot_events = get_known_events(api_client)
 
   seasons = fetch_first_seasons()
@@ -183,7 +185,7 @@ def main():
     return
   
   for program_code, season_year in seasons.items():
-    if program_code not in FIRST_TO_HUBSPOT_MAP.keys(): continue
+    if program_code not in FIRST_PROGRAMS: continue
 
     first_events = fetch_first_events(program_code, season_year)
     if first_events is None:
