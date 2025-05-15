@@ -1,8 +1,10 @@
 certifi==2025.4.26
 charset-normalizer==3.4.2
-hubspot-api-client==12.0.0-beta.1
+elastic-transport==8.17.1
+hubspot-api-client==12.0.0b1
 idna==3.10
 python-dateutil==2.9.0.post0
 requests==2.32.3
 six==1.17.0
+typing_extensions==4.13.2
 urllib3==2.4.0
