@@ -128,36 +128,119 @@ def get_event_query_json(frc_season: int) -> dict:
 
 
 '''
+Creates an event address from ElasticSearch data
+'''
+def build_event_location(event: dict) -> str:
+  location = ''
+
+  venue = event.get('event_venue', None)
+  venue = venue if venue is None else str(venue).strip()
+  if venue is not None and len(venue) > 1:
+    location += venue
+    location += '\n'
+
+  address1 = event.get('event_address1', None)
+  address1 = address1 if address1 is None else str(address1).strip()
+  if address1 is not None and len(address1) > 1:
+    location += address1
+    location += '\n'
+
+  address2 = event.get('event_address2', None)
+  address2 = address2 if address2 is None else str(address2).strip()
+  if address2 is not None and len(address2) > 0:
+    location += address2
+    location += '\n'
+
+  location_last_line = ''
+
+  city = event.get('event_city', None)
+  city = city if city is None else str(city).strip()
+  if city is not None and len(city) > 1:
+    location_last_line += city
+    location_last_line += ', '
+
+  location_last_line += 'Alabama'
+
+  postal_code = event.get('event_postal_code', None)
+  postal_code = postal_code if postal_code is None else str(postal_code).strip()
+  if postal_code is not None and len(postal_code) > 1:
+    location_last_line += postal_code
+
+  location_last_line = location_last_line.strip()
+
+  if len(location_last_line) > 0:
+    location += location_last_line
+
+  return location
+
+
+'''
+Get the appropriate volunteer url
+'''
+def get_volunteer_url(event: dict) -> str:
+  express = event.get('event_volunteer_url', None)
+  express = express if express is None else str(express).strip()
+  if express is not None and len(express) > 0:
+    return express
+  
+  legacy = event.get('dashboard_volunteer_deeplink', None)
+  legacy = legacy if legacy is None else str(legacy).strip()
+  if legacy is not None and len(legacy) > 0:
+    return legacy
+  
+  return ''
+  
+
+'''
 Fetch events from ElasticSearch for given season.
 '''
-def get_elastic_search_events(frc_season: int) -> dict:
+def get_elastic_search_events(frc_season: int) -> list:
   queryParameters = { 'size': '200' }
   headers = {'Content-type': 'application/json'}
   body = get_event_query_json(frc_season)
   response = requests.get(ELASTIC_SEARCH_EVENTS_URL, params=queryParameters, data=json.dumps(body), headers=headers).json()
   events = [e['_source'] for e in response['hits']['hits']]
 
-  return [
-    {
+  processed_events = []
+  for event in events:
+    event_type = event.get('event_type', None)
+    if event_type is None: continue
+    event_season_year = event.get('event_season', None)
+    if event_season_year is None: continue
+    event_code = event.get('event_code', None)
+    if event_code is None: continue
+
+    event_identifier = event_type + str(event_season_year) + str(event_code)
+    event_name = event.get('event_name', None)
+    if event_name is None: continue
+
+    start_date_str = event.get('date_start', None)
+    end_date_str = event.get('date_end', None)
+    if start_date_str is None or end_date_str is None: continue
+
+    start_date = int(datetime.fromisoformat(start_date_str).timestamp() * 1000)
+    end_date = int(datetime.fromisoformat(end_date_str).timestamp() * 1000)
+
+    location = build_event_location(event)
+    volunteer_url = get_volunteer_url(event)
+
+    processed_events.append({
       'eventOrganizer': 'FIRST in Alabama',
-      'externalAccountId': e.get('event_type', '') + str(e.get('event_season', 0)) + str(e.get('event_code', '')),
-      'externalEventId': e.get('event_type', '') + str(e.get('event_season', 0)) + str(e.get('event_code', '')),
-      'eventName': e.get('event_name', ''),
-      'eventType': e.get('event_type', ''),
-      'startDateTime': int(datetime.fromisoformat(e.get('date_start', '1970-01-01')).timestamp() * 1000),
-      'endDateTime': int(datetime.fromisoformat(e.get('date_end', '1970-01-01')).timestamp() * 1000),
-      "customProperties": [
-        { 'name': 'event_code', 'value': str(e.get('event_code', '')) },
-        { 'name': 'event_venue', 'value': e.get('event_venue', '') },
-        { "name": "event_season_year", "value": e.get('event_season', 0) },
-        { "name": "event_volunteer_url", "value": e.get('event_volunteer_url', None) or e.get('dashboard_volunteer_deeplink', '') },
-        { "name": "event_city", "value": e.get('event_city', '') },
-        { "name": "event_postal_code", "value": e.get('event_postal_code', '') },
-        { "name": "event_address", "value": e.get('event_address', '') }
+      'externalAccountId': event_identifier,
+      'externalEventId': event_identifier,
+      'eventName': event_name,
+      'eventType': event_type,
+      'startDateTime': start_date,
+      'endDateTime': end_date,
+      'customProperties': [
+        { 'name': 'event_code', 'value': str(event_code) },
+        { 'name': 'event_season_year', 'value': event_season_year },
+        { 'name': 'event_location', 'value': location },
+        { "name": 'event_volunteer_url', 'value': volunteer_url },
       ]
-    }
-    for e 
-    in events]
+    })
+
+  return processed_events
 
 
 '''
