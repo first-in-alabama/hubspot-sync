@@ -3,6 +3,7 @@
     "certifi",
     "crond",
     "dateutil",
+    "deeplink",
     "HUBSPOT",
     "idna",
     "JFLL",
