@@ -111,7 +111,7 @@ def get_hubspot_api_token() -> str:
     with open(TOKEN_PATH) as f: api_token = f.read()
   except:
     api_token = None
-  return api_token
+  return api_token if api_token is None else api_token.strip()
 
 
 '''
