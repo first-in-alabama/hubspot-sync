@@ -178,7 +178,7 @@ def build_event_location(event: dict) -> str:
 Get the appropriate volunteer url
 '''
 def get_volunteer_url(event: dict) -> str:
-  express = event.get('event_volunteer_url', None)
+  express = event.get('express_volunteer_url', None)
   express = express if express is None else str(express).strip()
   if express is not None and len(express) > 0:
     return express
@@ -232,11 +232,11 @@ def get_elastic_search_events(frc_season: int) -> list:
       'eventType': event_type,
       'startDateTime': start_date,
       'endDateTime': end_date,
+      'eventUrl': volunteer_url,
       'customProperties': [
         { 'name': 'event_code', 'value': str(event_code) },
         { 'name': 'event_season_year', 'value': event_season_year },
-        { 'name': 'event_location', 'value': location },
-        { "name": 'event_volunteer_url', 'value': volunteer_url },
+        { 'name': 'event_location', 'value': location }
       ]
     })
 
