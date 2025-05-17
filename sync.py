@@ -1,12 +1,13 @@
 from copy import deepcopy
 from datetime import datetime
+from dateutil import tz
 import json
 import requests
 from hubspot import Client
 from hubspot.marketing.events import BatchInputMarketingEventCreateRequestParams, ApiException
 SEASONS_API = 'https://my.firstinspires.org/usfirstapi/seasons/search'
 ELASTIC_SEARCH_EVENTS_URL = 'https://es02.firstinspires.org/events/_search'
-EVENT_QUERY_JSON_PATH = '/app/event_query_json.txt'
+EVENT_QUERY_JSON_PATH = '/run/secrets/EVENT_QUERY'
 TOKEN_PATH = '/run/secrets/HUBSPOT_API_TOKEN'
 
 
@@ -218,8 +219,14 @@ def get_elastic_search_events(frc_season: int) -> list:
     end_date_str = event.get('date_end', None)
     if start_date_str is None or end_date_str is None: continue
 
-    start_date = int(datetime.fromisoformat(start_date_str).timestamp() * 1000)
-    end_date = int(datetime.fromisoformat(end_date_str).timestamp() * 1000)
+    local_timezone = tz.gettz('America/Chicago')
+    start_no_timezone = datetime.strptime(start_date_str, '%Y-%m-%dT%H:%M:%S')
+    local_start = start_no_timezone.replace(tzinfo=local_timezone)
+    end_no_timezone = datetime.strptime(end_date_str, '%Y-%m-%dT%H:%M:%S')
+    local_end = end_no_timezone.replace(tzinfo=local_timezone)
+
+    start_date = int(local_start.timestamp() * 1000)
+    end_date = int(local_end.timestamp() * 1000)
 
     location = build_event_location(event)
     volunteer_url = get_volunteer_url(event)

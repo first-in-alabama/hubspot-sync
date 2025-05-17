@@ -3,8 +3,11 @@ services:
     restart: unless-stopped
     secrets:
       - HUBSPOT_API_TOKEN
+      - EVENT_QUERY
     build:
       context: .
 secrets:
   HUBSPOT_API_TOKEN:
-    file: secrets/hubspot_api_token.txt
+    file: secrets/HUBSPOT_API_TOKEN
+  EVENT_QUERY:
+    file: secrets/EVENT_QUERY

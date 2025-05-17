@@ -3,7 +3,6 @@ WORKDIR /app
 COPY requirements.txt .
 COPY crontab .
 COPY sync.py .
-COPY event_query_json.txt .
 
 RUN pip install -r requirements.txt
 
