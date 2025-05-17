@@ -6,7 +6,7 @@ from hubspot import Client
 from hubspot.marketing.events import BatchInputMarketingEventCreateRequestParams, ApiException
 SEASONS_API = 'https://my.firstinspires.org/usfirstapi/seasons/search'
 ELASTIC_SEARCH_EVENTS_URL = 'https://es02.firstinspires.org/events/_search'
-EVENT_QUERY_JSON_PATH = 'event_query_json.txt'
+EVENT_QUERY_JSON_PATH = '/app/event_query_json.txt'
 TOKEN_PATH = '/run/secrets/HUBSPOT_API_TOKEN'
 
 
