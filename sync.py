@@ -228,8 +228,8 @@ def get_elastic_search_events(frc_season: int) -> list:
     start_date = int(local_start.timestamp() * 1000)
     end_date = int(local_end.timestamp() * 1000)
 
-    description = event.get('description', None)
-    description = description.trim() if description is not None else None
+    description = event.get('event_description', None)
+    description = str(description).strip() if description is not None else ''
 
     location = build_event_location(event)
     volunteer_url = get_volunteer_url(event)
@@ -243,7 +243,7 @@ def get_elastic_search_events(frc_season: int) -> list:
       'startDateTime': start_date,
       'endDateTime': end_date,
       'eventUrl': volunteer_url,
-      'description': description,
+      'eventDescription': description,
       'customProperties': [
         { 'name': 'event_code', 'value': str(event_code) },
         { 'name': 'event_season_year', 'value': event_season_year },
